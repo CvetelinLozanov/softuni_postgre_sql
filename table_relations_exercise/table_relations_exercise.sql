@@ -462,4 +462,177 @@ ORDER BY
 	m.monastry_name
 ;
 
+-- 17 Monasteries by Continents and Countries
 
+UPDATE
+	countries
+SET
+	country_name = 'Burma'	
+WHERE
+	country_name = 'Myanmar'
+RETURNING *
+;
+
+INSERT INTO monasteries(monastery_name, country_code)
+VALUES
+	('Hanga Abbey', 'TZ'),
+	('Myin-Tin-Daik', 'MM')
+RETURNING *;
+
+SELECT
+	con.continent_name,
+	cou.country_name,
+	COUNT(m.*) AS monasteries_count
+FROM
+	continents AS con
+LEFT JOIN
+	countries AS cou
+USING
+	(continent_code)
+LEFT JOIN
+	monasteries AS m
+USING
+	(country_code)
+WHERE
+	NOT cou.three_rivers
+GROUP BY
+	con.continent_name,
+	cou.country_name
+ORDER BY monasteries_count DESC,
+	cou.country_name;
+
+-- 18 Retrieving Information about Indexes
+
+SELECT
+	tablename,
+	indexname,
+	indexdef
+FROM
+	pg_indexes
+WHERE
+	schemaname = 'public'
+ORDER BY tablename, indexname;
+
+-- 19 Continents and currencies
+CREATE VIEW continent_currency_usage
+	AS
+SELECT
+	b.continent_code,
+	b.currency_code,
+	b.currency_usage
+FROM (
+	SELECT
+		a.continent_code,
+		a.currency_code,
+		a.currency_usage,
+		DENSE_RANK() OVER (PARTITION BY a.continent_code ORDER BY a.currency_usage DESC) AS usage_rank
+	FROM(
+		SELECT
+			continent_code,
+			currency_code,
+			COUNT(currency_code) AS currency_usage
+		FROM
+			countries
+		GROUP BY
+			continent_code,
+			currency_code
+		HAVING
+			COUNT(*) > 1
+		) AS a
+	) AS b
+WHERE
+	b.usage_rank = 1
+ORDER BY
+	b.currency_usage DESC;
+
+-- 20 The Highest Peak in Each Country
+
+WITH
+	"row_number"
+AS
+(
+SELECT
+	a.country_name,
+	a.peak_name,
+	a.elevation,
+	a.mountain_range,
+	ROW_NUMBER() OVER (PARTITION BY a.country_name ORDER BY a.elevation DESC) AS top_peak
+FROM
+	(
+	SELECT
+		co.country_name,
+		p.peak_name,
+		p.elevation,
+		m.mountain_range
+	FROM
+			countries AS co
+	LEFT JOIN
+		mountains_countries AS mc
+		USING(country_code)		
+	LEFT JOIN
+		mountains AS m
+		ON
+			m.id = mc.mountain_id
+	LEFT JOIN
+		peaks AS p
+		ON
+			p.mountain_id = m.id
+	) AS a
+)
+
+SELECT
+	country_name,
+	COALESCE(peak_name, '(no highest peak)') AS highest_peak_name,
+	COALESCE(elevation, '0') AS highest_peak_elevation,
+	CASE 
+		WHEN peak_name IS NULL THEN '(no mountain)'
+	ELSE mountain_range
+	END
+FROM
+	"row_number"
+WHERE
+	top_peak = 1
+ORDER BY
+	country_name,
+	highest_peak_elevation DESC;
+
+-- SELECT
+-- 	b.country_name,
+-- 	b.highest_peak_name,
+-- 	b.highest_peak_elevation,
+-- 	b.mountain
+-- FROM
+-- 	(
+-- 	SELECT
+-- 		a.country_name,
+-- 		COALESCE(a.peak_name, '(no highest peak)') AS highest_peak_name,
+-- 		COALESCE(a.elevation, '0') AS highest_peak_elevation,
+-- 		COALESCE(a.mountain_range, '(no mountain)') AS mountain,
+-- 		ROW_NUMBER() OVER (PARTITION BY a.country_name ORDER BY a.elevation DESC) AS top_peak
+-- 	FROM
+-- 		(
+-- 		SELECT
+-- 			co.country_name,
+-- 			p.peak_name,
+-- 			p.elevation,
+-- 			m.mountain_range
+-- 		FROM
+-- 			countries AS co
+-- 		LEFT JOIN
+-- 			mountains_countries AS mc
+-- 			USING(country_code)		
+-- 		LEFT JOIN
+-- 			mountains AS m
+-- 			ON
+-- 				m.id = mc.mountain_id
+-- 		LEFT JOIN
+-- 			peaks AS p
+-- 			ON
+-- 				p.mountain_id = m.id
+-- 		) AS a
+-- 	) AS b
+-- WHERE
+-- 	b.top_peak = 1
+-- ORDER BY
+-- 	b.country_name,
+-- 	b.highest_peak_elevation DESC;
