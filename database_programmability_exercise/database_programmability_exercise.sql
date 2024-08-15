@@ -233,4 +233,76 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql;
+-- 11 Delete Procedure
+DROP PROCEDURE sp_retrieving_holders_with_balance_higher_than;
+-- 12 Log Accounts Trigger
+CREATE TABLE IF NOT EXISTS logs(
+	"id" INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	account_id INT,
+	old_sum NUMERIC(20, 4),
+	new_sum NUMERIC(20, 4)
+);
 
+CREATE FUNCTION trigger_fn_insert_new_entry_into_logs()
+RETURNS TRIGGER
+AS
+$$
+BEGIN
+	INSERT INTO logs(account_id, old_sum, new_sum)
+		VALUES
+		(
+			OLD."id",
+			OLD.balance,
+			NEW.balance
+		);
+	RETURN NEW;
+END;
+$$
+LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tr_account_balance_change
+AFTER UPDATE OF
+	balance
+ON
+	accounts
+FOR EACH ROW
+WHEN
+	(old.balance <> new.balance)
+EXECUTE FUNCTION trigger_fn_insert_new_entry_into_logs();
+
+-- 13 Notification Email on balance change
+CREATE TABLE IF NOT EXISTS notification_emails(
+	"id" SERIAL,
+	recepient_id INT, 
+	subject VARCHAR(255),
+	body TEXT
+);
+
+CREATE OR REPLACE FUNCTION trigger_fn_send_email_on_balance_change()
+RETURNS TRIGGER
+AS
+$$
+BEGIN
+	INSERT INTO notification_emails(
+		recepient_id,
+		subject,
+		body
+	)
+	VALUES
+		(
+			NEW.account_id,
+			'Balance change for account: ' || NEW.account_id,
+			'On '|| DATE(now()) ||' your balance was changed from ' || OLD.new_sum || ' to ' || NEW.new_sum || '.'
+		);
+	RETURN NEW;
+END;
+$$
+LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tr_send_email_on_balance_change
+AFTER UPDATE
+	ON logs
+FOR EACH ROW
+WHEN
+	(OLD.new_sum <> NEW.new_sum)
+EXECUTE FUNCTION trigger_fn_send_email_on_balance_change();
